@@ -144,7 +144,7 @@ def atom_feature(atom, table:pd.DataFrame = atom_table):
 
     return np.array(features)
 
-def convert_data_from_smiles(row, idx : int, mode : Literal['train', 'submission'], pred_col : Optional[Literal['Reorg_g','Reorg_ex']] = None):
+def convert_data_from_smiles(row, idx : int, mode : Literal['train', 'submission'], pred_col : Optional[Literal['Reorg_g','Reorg_ex', 'Multi']] = None):
 
     smiles = row['SMILES']
     mol = Chem.MolFromSmiles(smiles)
@@ -177,24 +177,23 @@ def convert_data_from_smiles(row, idx : int, mode : Literal['train', 'submission
             else:
                 bond2idx = BOND_TYPE[bond_type]
 
-            bonds_attr.append([bond2idx])
-
-    # features = torch.tensor(features, dtype = torch.float)
-    # bonds = torch.tensor(bonds, dtype = torch.long).t().contiguous()
-    # bonds_attr = torch.tensor(bonds_attr, dtype = torch.long).contiguous()
-
+            bonds_attr.append([bond2idx, d])
+            # bonds_attr.append([int(bond2idx)])
+   
     features = torch.from_numpy(np.array(features)).float()
     bonds = torch.from_numpy(np.array(bonds)).long().t().contiguous()
-    bonds_attr = torch.from_numpy(np.array(bonds_attr)).long().contiguous()
+    bonds_attr = torch.from_numpy(np.array(bonds_attr)).float().contiguous()
 
     if mode == 'train':
+        if pred_col == 'Multi':
+            pred_col = ['Reorg_g','Reorg_ex']
         pred = row[pred_col]
         pred = torch.tensor([pred], dtype = torch.float)
         return Data(x = features, edge_index = bonds, edge_attr = bonds_attr, y = pred, idx = idx)
     else:
         return Data(x = features, edge_index = bonds, edge_attr = bonds_attr, y = None, idx = idx)
     
-def generate_dataset(df : pd.DataFrame, mode : Literal['train', 'submission'], pred_col : Optional[Literal['Reorg_g','Reorg_ex']] = None):
+def generate_dataset(df : pd.DataFrame, mode : Literal['train', 'submission'], pred_col : Optional[Literal['Reorg_g','Reorg_ex', 'Multi']] = None):
     dataset = []
     for idx, row in tqdm(df.iterrows()):
         data = convert_data_from_smiles(row, idx, mode, pred_col)
@@ -207,7 +206,7 @@ def generate_dataloader(
     test_size : Optional[float] = None, 
     valid_size : float = 0.2,
     batch_size : int = 128, 
-    pred_col : Optional[Literal['Reorg_g', 'Reorg_ex']] = 'Reorg_g'
+    pred_col : Optional[Literal['Reorg_g', 'Reorg_ex', 'Multi']] = 'Reorg_g'
     ):
 
     dataset = generate_dataset(df, mode, pred_col)
