@@ -233,3 +233,17 @@ def generate_dataloader(
     else:
         submission_loader = DataLoader(dataset, batch_size, shuffle = False)
         return submission_loader
+
+def generate_dataloader_cv(
+    df : Optional[pd.DataFrame] = None, 
+    mode : Literal['train', 'submission'] = 'train', 
+    batch_size : int = 128, 
+    train_indices : Optional[List] = None,
+    valid_indices : Optional[List] = None,
+    pred_col : Optional[Literal['Reorg_g', 'Reorg_ex', 'Multi']] = 'Reorg_g'
+    ):
+
+    dataset = generate_dataset(df, mode, pred_col)
+    train_loader = DataLoader(dataset, batch_size, sampler = SubsetRandomSampler(train_indices))
+    valid_loader = DataLoader(dataset, batch_size, sampler = SubsetRandomSampler(valid_indices))
+    return train_loader, valid_loader

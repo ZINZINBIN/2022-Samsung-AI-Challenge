@@ -1,2 +1,5 @@
 # ignore .pt
 weights/*.pt
+
+# ignore csv file
+result/*.csv
