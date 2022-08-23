@@ -21,9 +21,10 @@ def train_per_epoch(
 
     for batch_idx, data in enumerate(train_loader):
         optimizer.zero_grad()
-        data = data.to(device)
 
-        target = data.y
+        # data = data.to(device)
+        # target = data.y
+        target = data['y']
         target = target.to(device)
     
         output = model(data)
@@ -61,9 +62,10 @@ def valid_per_epoch(
     for batch_idx, data in enumerate(valid_loader):
         with torch.no_grad():
             optimizer.zero_grad()
-            data = data.to(device)
+            # data = data.to(device)
+            # target = data.y
+            target = data['y']
             
-            target = data.y
             target = target.to(device)
             output = model(data)
 

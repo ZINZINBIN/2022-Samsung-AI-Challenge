@@ -47,7 +47,11 @@ class SelfAttention(nn.Module):
         attn_weight_matrix = F.softmax(attn_weight_matrix, dim=2)
         return attn_weight_matrix
     
-    def forward(self, seq:torch.Tensor, batch_size=None)->torch.Tensor:
+    def forward(self, data)->torch.Tensor:
+
+        seq = data['seq'].cuda()
+        batch_size = seq.size()[0]
+
         x = self.embeddings(seq)
         x = x.permute(1, 0, 2)
 
