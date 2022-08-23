@@ -1,28 +1,42 @@
 import torch
 import torch.nn as nn
-from typing import Union, Tuple, Optional, List
+import torch.nn.functional as F
+from typing import Literal, Union, Tuple, Optional, List
 from torch_geometric.data import Data
-from torch_geometric.nn import ChebConv, GCNConv, GATv2Conv, GINEConv
+from torch_geometric.nn import ChebConv, GCNConv, GATv2Conv, GINEConv, PNAConv
+from torch_geometric.nn.conv import TransformerConv
 from torch_geometric.nn.pool import knn_graph
 from torch_geometric.nn.pool.graclus import graclus
 from torch_scatter import scatter_max
 from torch_geometric.nn import global_max_pool, global_mean_pool, global_add_pool
-from torch_geometric.nn import max_pool, max_pool_x, avg_pool
+from torch_geometric.nn import max_pool, max_pool_x, avg_pool, BatchNorm
 from torch_geometric.utils.undirected import to_undirected
 from pytorch_model_summary import summary
-from src.preprocessing import ATOMS_LIST, ATOMS_DEGREE, ATOMS_NUMHS, ATOMS_VALENCE, ATOMS_AROMATIC, ATOMS_RING, ATOMS_CHARGE, ATOMS_HYBRID, atom_properties
+from src.preprocessing import ATOMS_LIST, ATOMS_DEGREE, ATOMS_NUMHS, ATOMS_VALENCE, ATOMS_AROMATIC, ATOMS_RING, ATOMS_HYBRID, atom_properties
+
+
+# atom_feats = [
+#     len(ATOMS_LIST) + 1, 
+#     len(ATOMS_DEGREE) + 1, 
+#     len(ATOMS_NUMHS) + 1, 
+#     len(ATOMS_VALENCE) + 1, 
+#     len(ATOMS_AROMATIC),
+#     len(ATOMS_RING),
+#     len(ATOMS_HYBRID) + 1,
+#     # len(atom_properties)
+# ]
 
 atom_feats = [
-    len(ATOMS_LIST) + 1, 
-    len(ATOMS_DEGREE) + 1, 
-    len(ATOMS_NUMHS) + 1, 
-    len(ATOMS_VALENCE) + 1, 
+    len(ATOMS_LIST), 
+    len(ATOMS_DEGREE), 
+    len(ATOMS_NUMHS), 
+    len(ATOMS_VALENCE), 
     len(ATOMS_AROMATIC),
     len(ATOMS_RING),
-    len(ATOMS_CHARGE) + 1,
-    len(ATOMS_HYBRID) + 1,
-    # len(atom_properties)
+    len(ATOMS_HYBRID),
 ]
+
+edge_feats = [5,4,2,2,2]
 
 class FeatureEmbedding(nn.Module):
     def __init__(self, feature_lens : List, max_norm = 1.0):
@@ -30,13 +44,6 @@ class FeatureEmbedding(nn.Module):
         self.feature_lens = feature_lens
         self.emb_layers = nn.ModuleList()
         self.max_norm = max_norm
-
-        '''
-        for size in feature_lens[:-1]:
-            emb_layer = nn.Embedding(size, size, max_norm = max_norm)
-            emb_layer.load_state_dict({'weight': torch.eye(size)})
-            self.emb_layers.append(emb_layer)
-        '''
 
         for size in feature_lens:
             emb_layer = nn.Embedding(size, size, max_norm = max_norm)
@@ -48,8 +55,12 @@ class FeatureEmbedding(nn.Module):
         for i, layer in enumerate(self.emb_layers):
             output.append(layer(x[:, i].long()))
 
-        # output.append(x[:, -self.feature_lens[-1]:])
+        # Concatenate all node feature as dim 1
         output = torch.cat(output, 1)
+
+        # normalization
+        output = F.normalize(output)
+
         return output
 
 class GCNLayer(nn.Module):
@@ -112,14 +123,14 @@ class GConvNet(nn.Module):
         print(summary(self, sample_inputs, max_depth = None, show_parent_layers=True, show_input = True))
 
 class GATLayer(nn.Module):
-    def __init__(self, num_features, hidden, num_head, alpha = 0.01, p = 0.5):
+    def __init__(self, num_features, hidden, num_head, alpha = 0.01, p = 0.5, edge_dim : int = 2):
         super(GATLayer, self).__init__()
         self.num_features = num_features
         self.hidden = hidden
         self.num_head = num_head
         self.alpha = alpha
 
-        self.gat = GATv2Conv(num_features, hidden, num_head, dropout = p, edge_dim = 2)
+        self.gat = GATv2Conv(num_features, hidden, num_head, dropout = p, edge_dim = edge_dim)
         self.norm  = nn.BatchNorm1d(num_head * hidden)
         self.act = nn.LeakyReLU(alpha)
 
@@ -130,19 +141,22 @@ class GATLayer(nn.Module):
         return x
 
 class GATNet(nn.Module):
-    def __init__(self, output_dim : int = 2, hidden : int = 128, num_heads : int = 4, p : float = 0.25, alpha = 0.01, embedd_max_norm = 1.0, n_layers : int = 4):
+    def __init__(self, output_dim : int = 2, hidden : int = 128, num_heads : int = 4, p : float = 0.25, alpha = 0.01, embedd_max_norm = 1.0, n_layers : int = 4, agg : Literal['pool', 'mean', 'add'] = 'add'):
         super(GATNet, self).__init__()
         torch.manual_seed(42)
         self.hidden = hidden
         self.alpha = alpha
         self.embedd_max_norm = embedd_max_norm
         self.output_dim = output_dim
+        self.agg = agg
+        self.edge_dim = sum(edge_feats)
    
-        self.embedd = FeatureEmbedding(feature_lens = atom_feats, max_norm=embedd_max_norm)
+        self.atom_embedd = FeatureEmbedding(feature_lens = atom_feats, max_norm=embedd_max_norm)
+        self.edge_embedd = FeatureEmbedding(feature_lens = edge_feats, max_norm = embedd_max_norm)
 
         self.gc = nn.ModuleList()
         for i in range(n_layers):
-            self.gc.append(GATLayer(sum(atom_feats) if i == 0 else hidden * num_heads, hidden, num_heads, alpha, p))
+            self.gc.append(GATLayer(sum(atom_feats) if i == 0 else hidden * num_heads, hidden, num_heads, alpha, p, sum(edge_feats)))
 
         self.mlp = nn.ModuleList(
             [
@@ -158,16 +172,23 @@ class GATNet(nn.Module):
        
     def forward(self, inputs)->torch.Tensor:
         x, edge_idx, edge_attr, batch_idx = inputs.x,  inputs.edge_index, inputs.edge_attr, inputs.batch
-        x = self.embedd(x)
+        x = self.atom_embedd(x)
+        edge_attr = self.edge_embedd(edge_attr)
+
         for layer in self.gc:
             x = layer(x, edge_idx, edge_attr)
-        x = global_add_pool(x, batch_idx)
 
+        if self.agg == 'add':
+            x = global_add_pool(x, batch_idx)
+        elif self.agg == 'mean':
+            x = global_mean_pool(x, batch_idx)
+        elif self.agg == 'pool':
+            x = global_max_pool(x, batch_idx)
+        
         for layer in self.mlp:
             x = layer(x)
 
         return x if self.output_dim != 1 else x.squeeze(1)
-
 
 class ChebConvLayer(nn.Module):
     def __init__(self, n_dims_in : int, k : int, n_dims_out : int, alpha = 0.01):
@@ -297,6 +318,163 @@ class GINNet(nn.Module):
         x = self.embedd(x)
         for layer in self.gc:
             x = layer(x, edge_idx, edge_attr)
+        x = global_add_pool(x, batch_idx)
+
+        for layer in self.mlp:
+            x = layer(x)
+
+        return x if self.output_dim != 1 else x.squeeze(1)
+
+
+class TransformerBasedLayer(nn.Module):
+    def __init__(self, num_features : int , hidden : int , num_head : int, alpha = 0.01, p = 0.5):
+        super(TransformerBasedLayer, self).__init__()
+        self.num_features = num_features
+        self.hidden = hidden
+        self.num_head = num_head
+        self.alpha = alpha
+
+        self.trans = TransformerConv(num_features, hidden, num_head, True, False, p, edge_dim = 2)
+        self.norm  = nn.BatchNorm1d(num_head * hidden)
+        self.act = nn.LeakyReLU(alpha)
+
+    def forward(self, x : torch.Tensor, edge_idx : Optional[torch.Tensor]  = None, edge_attr : Optional[torch.Tensor] = None)->torch.Tensor:
+        x = self.trans(x, edge_index = edge_idx, edge_attr = edge_attr)
+        x = self.norm(x)
+        x = self.act(x)
+
+        return x
+
+class TransformerBasedModel(nn.Module):
+    def __init__(self, output_dim : int = 2, hidden : int = 128, num_heads : int = 4, p : float = 0.25, alpha = 0.01, embedd_max_norm = 1.0, n_layers : int = 4):
+        super(TransformerBasedModel, self).__init__()
+        torch.manual_seed(42)
+        self.hidden = hidden
+        self.alpha = alpha
+        self.embedd_max_norm = embedd_max_norm
+        self.output_dim = output_dim
+   
+        self.embedd = FeatureEmbedding(feature_lens = atom_feats, max_norm=embedd_max_norm)
+
+        self.gc = nn.ModuleList()
+        for i in range(n_layers):
+            self.gc.append(TransformerBasedLayer(sum(atom_feats) if i == 0 else hidden * num_heads, hidden, num_heads, alpha, p))
+
+        self.mlp = nn.ModuleList(
+            [
+                nn.Linear(num_heads * self.hidden, self.hidden//2),
+                nn.BatchNorm1d(self.hidden//2),
+                nn.ReLU(),
+                nn.Linear(self.hidden//2, self.hidden//2),
+                nn.BatchNorm1d(self.hidden//2),
+                nn.ReLU(),
+                nn.Linear(self.hidden//2, output_dim),
+            ]
+        )
+       
+    def forward(self, inputs)->torch.Tensor:
+        x, edge_idx, edge_attr, batch_idx = inputs.x,  inputs.edge_index, inputs.edge_attr, inputs.batch
+        x = self.embedd(x)
+        for layer in self.gc:
+            x = layer(x, edge_idx, edge_attr)
+
+        x = global_add_pool(x, batch_idx)
+
+        for layer in self.mlp:
+            x = layer(x)
+
+        return x if self.output_dim != 1 else x.squeeze(1)
+
+class PNALayer(nn.Module):
+    def __init__(
+        self, 
+        num_features : int, 
+        hidden : int, 
+        aggregators : List, 
+        scalers : List, 
+        deg, 
+        edge_dim : int = 2, 
+        pre_layers : int = 1,
+        post_layers : int = 1, 
+        towers : int = 4,
+        alpha : float = 0.1, 
+        p : float = 0.25
+        ):
+
+        super(PNALayer, self).__init__()
+        self.num_features = num_features
+        self.hidden = hidden
+        self.alpha = alpha
+        self.p = p
+
+        self.pna = PNAConv(num_features, hidden, aggregators, scalers, deg = deg, edge_dim = edge_dim, pre_layers=pre_layers, post_layers=post_layers, towers=towers)
+        self.norm  = BatchNorm(hidden)
+        self.act = nn.LeakyReLU(alpha)
+        self.drop = nn.Dropout(p)
+
+    def forward(self, x : torch.Tensor, edge_idx : Optional[torch.Tensor]  = None, edge_attr : Optional[torch.Tensor] = None)->torch.Tensor:
+        x = self.pna(x, edge_index = edge_idx, edge_attr = edge_attr)
+        x = self.norm(x)
+        x = self.act(x)
+        x = self.drop(x)
+
+        return x
+
+default_aggrs = ['sum', 'mean', 'min', 'max', 'std']
+default_scalers = ['identity', 'amplification', 'attenuation']
+
+class PNANet(nn.Module):
+    def __init__(
+        self, 
+        deg, 
+        aggrs = default_aggrs, 
+        scalers = default_scalers, 
+        edge_dim : int = 2, 
+        output_dim : int = 2, 
+        hidden : int = 128, 
+        p : float = 0.25, 
+        alpha = 0.01, 
+        embedd_max_norm = 1.0, 
+        n_layers : int = 4, 
+        pre_layers : int = 1,
+        post_layers : int = 1,
+        towers : int = 4,
+        ):
+        
+        super(PNANet, self).__init__()
+        torch.manual_seed(42)
+        self.hidden = hidden
+        self.alpha = alpha
+        self.embedd_max_norm = embedd_max_norm
+        self.output_dim = output_dim
+   
+        self.atom_embedd = FeatureEmbedding(feature_lens = atom_feats, max_norm=embedd_max_norm)
+        self.edge_embedd = FeatureEmbedding(feature_lens = edge_feats, max_norm = embedd_max_norm)
+
+        self.gc = nn.ModuleList()
+        for i in range(n_layers):
+            self.gc.append(PNALayer(sum(atom_feats) if i == 0 else hidden, hidden, aggrs, scalers, deg, sum(edge_feats), pre_layers, post_layers, towers, alpha, p))
+
+        self.mlp = nn.ModuleList(
+            [
+                nn.Linear(self.hidden, self.hidden//2),
+                nn.BatchNorm1d(self.hidden//2),
+                nn.ReLU(),
+                nn.Linear(self.hidden//2, self.hidden//2),
+                nn.BatchNorm1d(self.hidden//2),
+                nn.ReLU(),
+                nn.Linear(self.hidden//2, output_dim),
+            ]
+        )
+       
+    def forward(self, inputs)->torch.Tensor:
+        x, edge_idx, edge_attr, batch_idx = inputs.x,  inputs.edge_index, inputs.edge_attr, inputs.batch
+        x = self.atom_embedd(x)
+        edge_attr = self.edge_embedd(edge_attr)
+
+        for layer in self.gc:
+            x = layer(x, edge_idx, edge_attr)
+
         x = global_add_pool(x, batch_idx)
 
         for layer in self.mlp:

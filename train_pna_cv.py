@@ -7,9 +7,9 @@ import numpy as np
 from tqdm.auto import tqdm
 import pandas as pd
 from torch.utils.data import DataLoader
-from src.preprocessing import generate_dataloader_cv, generate_dataloader
+from src.preprocessing import generate_dataloader_cv, generate_dataloader, extract_degree
 from src.loss import RMSELoss
-from src.model import GATNet
+from src.model import PNANet
 from src.train import train_per_epoch, valid_per_epoch
 from src.evaluate import evaluate
 from src.inference import inference
@@ -90,12 +90,16 @@ if __name__ == "__main__":
     max_norm_grad = 1.0
 
     kwargs = {
-        "num_heads" : 6,
-        "hidden" : 64,
-        "p" : 0.25,
-        "alpha" : 0.1,
-        "embedd_max_norm" : 1.0,
-        "n_layers":4
+        'deg':None,
+        'output_dim' : 2,
+        'hidden' : 64,
+        'p' : 0.25,
+        'alpha' : 0.01,
+        'embedd_max_norm' : 1.0,
+        'n_layers' : 2,
+        'pre_layers' : 1,
+        'post_layers' : 1,
+        'towers' : 4
     }
 
     preds = []
@@ -133,7 +137,11 @@ if __name__ == "__main__":
             pred_col = 'Multi'
         )
 
-        model = GATNet(**kwargs).to(device)
+        deg = extract_degree(train_loader.dataset)
+
+        kwargs['deg'] = deg
+
+        model = PNANet(**kwargs).to(device)
         optimizer = torch.optim.AdamW(model.parameters(), lr = 1e-3)
         loss_fn = RMSELoss()
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size = 4, gamma = 0.95)
@@ -193,7 +201,6 @@ if __name__ == "__main__":
     test_loss = mean_squared_error(df_test[['Reorg_g', 'Reorg_ex']].values, preds_test, squared = False)
     print("test_loss : {:.3f}".format(test_loss))
 
-
     # inference
     preds_test = []
 
@@ -219,7 +226,12 @@ if __name__ == "__main__":
             pred_col = 'Multi'
         )
 
-        model = GATNet(**kwargs).to(device)
+        deg = extract_degree(train_loader.dataset)
+
+        kwargs['deg'] = deg
+
+        model = PNANet(**kwargs).to(device)
+
         optimizer = torch.optim.AdamW(model.parameters(), lr = 1e-3)
         loss_fn = RMSELoss()
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size = 4, gamma = 0.95)
@@ -261,7 +273,7 @@ if __name__ == "__main__":
             dt_remain = dt * (num_k_fold - 1)
             
             h = int(dt_remain // 3600)
-            m = int(dt_remain // 60)
+            m = int(dt_remain % 3600 // 60)
             s = int(dt_remain % 60)
 
             print("Extected time remained : {}h {}m {}s".format(h,m,s))
@@ -275,4 +287,4 @@ if __name__ == "__main__":
 
     submission = pd.read_csv(os.path.join(PATH, "sample_submission.csv"))
     submission.loc[:, ["Reorg_g", "Reorg_ex"]] =  preds_test
-    submission.to_csv("./result/submission_GATNet_cv.csv", index = False)
+    submission.to_csv("./result/submission_PNANet_cv.csv", index = False)

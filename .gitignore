@@ -3,3 +3,7 @@ weights/*.pt
 
 # ignore csv file
 result/*.csv
+
+# ignore mol file
+dataset/mol_files/train_set/*.mol
+dataset/mol_files/test_set/*.mol

@@ -3,7 +3,7 @@ import torch
 import pandas as pd
 from src.preprocessing import generate_dataloader
 from src.loss import RMSELoss
-from src.model import GATNet
+from src.model import TransformerBasedModel
 from src.train import train
 from src.utils import plot_training_curve
 from src.evaluate import evaluate
@@ -24,16 +24,16 @@ if __name__ == "__main__":
     train_df = pd.read_csv(os.path.join(PATH, "train_set.csv"))
     test_df = pd.read_csv(os.path.join(PATH, "test_set.csv"))
 
-    num_epoch = 64
+    num_epoch = 128
     verbose = 8
     batch_size = 128
 
     num_heads = 4
-    hidden = 128
-    p = 0.0
-    alpha = 0.01
+    hidden = 64
+    p = 0.5
+    alpha = 0.1
     embedd_max_norm = 1.0 
-    n_layers = 4
+    n_layers = 2
 
     train_loader, valid_loader, _ = generate_dataloader(
         train_df,
@@ -44,13 +44,13 @@ if __name__ == "__main__":
         pred_col = 'Multi'
     )
 
-    model = GATNet(
+    model = TransformerBasedModel(
         num_heads = num_heads,
         p = p,
         hidden = hidden, 
         alpha = alpha, 
         embedd_max_norm = embedd_max_norm, 
-        n_layers = n_layers,
+        n_layers = n_layers
     )
 
     model.to(device)
@@ -70,14 +70,14 @@ if __name__ == "__main__":
         num_epoch = num_epoch,
         verbose = verbose,
         root_dir = "./weights",
-        best_pt = "GATNet_best.pt",
-        last_pt = "GATNet_last.pt",
+        best_pt = "GraphTransformer_best.pt",
+        last_pt = "GraphTransformer_last.pt",
         max_norm_grad = 1.0
     )
 
-    plot_training_curve("./result/GATNet_learning_curve.png", train_loss, valid_loss)
+    plot_training_curve("./result/GraphTransformerlearning_curve.png", train_loss, valid_loss)
 
-    model.load_state_dict(torch.load("./weights/GATNet_best.pt"), strict = False)
+    model.load_state_dict(torch.load("./weights/GraphTransformer_best.pt"), strict = False)
 
     # inference
     submission_loader = generate_dataloader(
@@ -93,4 +93,4 @@ if __name__ == "__main__":
 
     submission = pd.read_csv(os.path.join(PATH, "sample_submission.csv"))
     submission.loc[:, ["Reorg_g", "Reorg_ex"]] =  pred
-    submission.to_csv("./result/submission_GATNet.csv", index = False)
+    submission.to_csv("./result/submission_GraphTransformer.csv", index = False)

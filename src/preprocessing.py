@@ -8,7 +8,8 @@ from rdkit import Chem, DataStructs
 from rdkit.Chem import Descriptors
 from sklearn.preprocessing import scale
 from sklearn.model_selection import train_test_split
-from torch_geometric.data import Data
+from torch_geometric.data import Data, Dataset
+from torch_geometric.utils import degree
 from torch_geometric.loader import DataLoader
 from torch.utils.data import SubsetRandomSampler
 
@@ -17,13 +18,12 @@ ATOMS_LIST = ['H', 'B', 'C', 'N', 'O', 'F', 'Si', 'P', 'S', 'Cl', 'Br', 'I']
 ATOMS_NUM_LIST = [1, 5, 6, 7, 8, 9, 14, 15, 16, 17, 35, 53]
 
 # atom properties 
-ATOMS_DEGREE = [0, 1, 2, 3, 4]
-ATOMS_NUMHS = [0, 1, 2, 3, 4]
-ATOMS_VALENCE = [0, 1, 2, 3, 4]
+ATOMS_DEGREE = [0, 1, 2, 3, 4, 5, 6]
+ATOMS_NUMHS = [0, 1, 2, 3]
+ATOMS_VALENCE = [0, 1, 2, 3]
 ATOMS_AROMATIC = [0, 1]
 ATOMS_RING = [0,1]
-ATOMS_CHARGE = [0, 1 ,2 ,3 ,4]
-ATOMS_HYBRID = ['SP','SP2','SP3']
+ATOMS_HYBRID = [2,3,4,5,6]
 
 # additional
 atom_properties = [
@@ -31,15 +31,19 @@ atom_properties = [
     'dipole_polarizability', 'vdw_radius', 'en_pauling'
 ]
 
-# bond type
+# bond properties
 BOND_TYPE = {
     'ZERO': 0,
     'SINGLE': 1,
     'DOUBLE': 2,
     'TRIPLE': 3,
     'AROMATIC': 4,
-    'IONIC': 5
 }
+
+BOND_STEREO = [0,2,3]
+BOND_AROMATIC = [0,1]
+BOND_CONJUGATED = [0,1]
+BOND_RING = [0,1]
 
 # molecular properties
 MOL_PROPERTIES = [
@@ -97,6 +101,7 @@ def get_atom_table():
 
 # generate new dataframe with molecular properties
 def get_mol_properties(df : pd.DataFrame):
+
     mol_properties = [
         'MolMR', 'NHOHCount', 'NOCount',
         'NumHAcceptors', 'NumHDonors',
@@ -113,6 +118,7 @@ def get_mol_properties(df : pd.DataFrame):
         mol = Chem.AddHs(Chem.MolFromSmiles(mol))
         for properties in mol_properties:
             df.loc[idx, properties] = getattr(Descriptors, properties)(mol)
+
     df.replace(np.inf, 0, inplace=True)
     df = df.fillna(0)
     scaled_df = df.copy()
@@ -136,7 +142,6 @@ def atom_feature(atom, table:pd.DataFrame = atom_table):
     features.extend(char2idx(atom.GetImplicitValence(), ATOMS_VALENCE))
     features.extend(char2idx(int(atom.GetIsAromatic()), ATOMS_AROMATIC))
     features.extend(char2idx(int(atom.IsInRing()), ATOMS_RING))
-    features.extend(char2idx(atom.GetFormalCharge() + 1, ATOMS_CHARGE))
     features.extend(char2idx(atom.GetHybridization(), ATOMS_HYBRID))
 
     # Continuous Features : chemical info
@@ -144,12 +149,28 @@ def atom_feature(atom, table:pd.DataFrame = atom_table):
 
     return np.array(features)
 
+def edge_feature(bond):
+
+    bond_type = bond.GetBondType().name
+    if bond_type not in BOND_TYPE.keys():
+        bond2idx = 0
+    else:
+        bond2idx = BOND_TYPE[bond_type]
+
+    features = []
+    features.extend([bond2idx])
+    features.extend(char2idx(int(bond.GetStereo()), BOND_STEREO))
+    features.extend(char2idx(int(bond.GetIsAromatic()), BOND_AROMATIC))
+    features.extend(char2idx(int(bond.GetIsConjugated()), BOND_CONJUGATED))
+    features.extend(char2idx(int(bond.IsInRing()), BOND_RING))
+
+    return features
+
 def convert_data_from_smiles(row, idx : int, mode : Literal['train', 'submission'], pred_col : Optional[Literal['Reorg_g','Reorg_ex', 'Multi']] = None):
 
     smiles = row['SMILES']
     mol = Chem.MolFromSmiles(smiles)
     adj = Chem.GetAdjacencyMatrix(mol)
-    dist = Chem.GetDistanceMatrix(mol)
 
     features = []
 
@@ -167,18 +188,7 @@ def convert_data_from_smiles(row, idx : int, mode : Literal['train', 'submission
     
     for atom in mol.GetAtoms():
         for bond in atom.GetBonds():
-            start = bond.GetBeginAtomIdx()
-            end = bond.GetEndAtomIdx()
-            d = dist[start, end]
-            bond_type = bond.GetBondType().name
-
-            if bond_type not in BOND_TYPE.keys():
-                bond2idx = 0
-            else:
-                bond2idx = BOND_TYPE[bond_type]
-
-            bonds_attr.append([bond2idx, d])
-            # bonds_attr.append([int(bond2idx)])
+            bonds_attr.append(edge_feature(bond))
    
     features = torch.from_numpy(np.array(features)).float()
     bonds = torch.from_numpy(np.array(bonds)).long().t().contiguous()
@@ -247,3 +257,18 @@ def generate_dataloader_cv(
     train_loader = DataLoader(dataset, batch_size, sampler = SubsetRandomSampler(train_indices))
     valid_loader = DataLoader(dataset, batch_size, sampler = SubsetRandomSampler(valid_indices))
     return train_loader, valid_loader
+
+
+def extract_degree(dataset : Dataset)->torch.Tensor:
+    max_degree = -1
+    for data in dataset:
+        d = degree(data.edge_index[1], num_nodes=data.num_nodes, dtype=torch.long)
+        max_degree = max(max_degree, int(d.max()))
+
+    # Compute the in-degree histogram tensor
+    deg = torch.zeros(max_degree + 1, dtype=torch.long)
+    for data in dataset:
+        d = degree(data.edge_index[1], num_nodes=data.num_nodes, dtype=torch.long)
+        deg += torch.bincount(d, minlength=deg.numel())
+
+    return deg
