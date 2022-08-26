@@ -17,8 +17,12 @@ from torch.utils.data import SubsetRandomSampler
 ATOMS_LIST = ['H', 'B', 'C', 'N', 'O', 'F', 'Si', 'P', 'S', 'Cl', 'Br', 'I']
 ATOMS_NUM_LIST = [1, 5, 6, 7, 8, 9, 14, 15, 16, 17, 35, 53]
 
+# ATOMS_LIST = ['H', 'B', 'C', 'N', 'O', 'F', 'P', 'S', 'Cl']
+# ATOMS_NUM_LIST = [1, 5, 6, 7, 8, 9, 15, 16, 17]
+
 # atom properties 
 ATOMS_DEGREE = [0, 1, 2, 3, 4, 5, 6]
+# ATOMS_DEGREE = [0, 1, 2, 3, 4]
 ATOMS_NUMHS = [0, 1, 2, 3]
 ATOMS_VALENCE = [0, 1, 2, 3]
 ATOMS_AROMATIC = [0, 1]
@@ -32,14 +36,8 @@ atom_properties = [
 ]
 
 # bond properties
-BOND_TYPE = {
-    'ZERO': 0,
-    'SINGLE': 1,
-    'DOUBLE': 2,
-    'TRIPLE': 3,
-    'AROMATIC': 4,
-}
-
+# BOND_TYPE = {'ZERO': 0,'SINGLE': 1,'DOUBLE': 2,'TRIPLE': 3,'AROMATIC': 4,}
+BOND_TYPE = {'SINGLE': 0,'DOUBLE': 1,'TRIPLE': 2,'AROMATIC': 3}
 BOND_STEREO = [0,2,3]
 BOND_AROMATIC = [0,1]
 BOND_CONJUGATED = [0,1]
@@ -153,7 +151,7 @@ def edge_feature(bond):
 
     bond_type = bond.GetBondType().name
     if bond_type not in BOND_TYPE.keys():
-        bond2idx = 0
+        bond2idx = len(BOND_TYPE.items())
     else:
         bond2idx = BOND_TYPE[bond_type]
 

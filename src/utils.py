@@ -30,7 +30,6 @@ def plot_training_curve(save_dir : str, train_loss : Union[List, np.array, np.nd
     plt.ylabel('loss')
     plt.savefig(save_dir)
 
-
 # extract alphabet and index dictionay from dataframe
 def extract_alphabet_dict(df : pd.DataFrame):
     corpus = df.copy()['SMILES']

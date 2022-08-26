@@ -3,7 +3,7 @@ import torch
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
-from src.utils import extract_alphabet_dict
+from src.utils import extract_alphabet_dict, plot_training_curve
 from src.CustomDataset import SMILESDataset
 from src.loss import RMSELoss
 from src.self_attention import SelfAttention
@@ -71,5 +71,10 @@ if __name__ == "__main__":
         root_dir = "./weights",
         best_pt = "self_attention_best.pt",
         last_pt = "self_attention_last.pt",
-        max_norm_grad = 1.0
+        max_norm_grad = 5.0
     )
+
+    plot_training_curve("./result/self_attention_learning_curve.png", train_loss, valid_loss)
+
+    model.load_state_dict(torch.load("./weights/self_attention_best.pt"), strict = False)
+    test_loss = evaluate(test_loader, model, optimizer, loss_fn, device)

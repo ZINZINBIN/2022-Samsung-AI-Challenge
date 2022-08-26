@@ -22,9 +22,8 @@ def train_per_epoch(
     for batch_idx, data in enumerate(train_loader):
         optimizer.zero_grad()
 
-        # data = data.to(device)
-        # target = data.y
-        target = data['y']
+        data = data.to(device)
+        target = data.y
         target = target.to(device)
     
         output = model(data)
@@ -62,9 +61,8 @@ def valid_per_epoch(
     for batch_idx, data in enumerate(valid_loader):
         with torch.no_grad():
             optimizer.zero_grad()
-            # data = data.to(device)
-            # target = data.y
-            target = data['y']
+            data = data.to(device)
+            target = data.y
             
             target = target.to(device)
             output = model(data)
@@ -91,6 +89,7 @@ def train(
     best_pt : str = "best.pt",
     last_pt : str = "last.pt",
     max_norm_grad : Optional[float] = None,
+    early_stopping_round : int = 8
     ):
 
     train_loss_list = []
@@ -98,6 +97,8 @@ def train(
 
     best_epoch = 0
     best_loss = torch.inf
+    esr = 0
+    is_early_stopping = False
 
     for epoch in tqdm(range(num_epoch), desc = "training process"):
 
@@ -136,16 +137,28 @@ def train(
         if not os.path.exists(root_dir):
             os.mkdir(root_dir)
 
+        # save the lastest model
+        torch.save(model.state_dict(), os.path.join(root_dir, last_pt))
+
+        # Early Stopping
         if best_loss > valid_loss:
             best_loss = valid_loss
             best_epoch  = epoch
             torch.save(model.state_dict(), os.path.join(root_dir, best_pt))
-        
-        torch.save(model.state_dict(), os.path.join(root_dir, last_pt))
+            esr = 0
+        elif best_loss < valid_loss:
+            esr += 1
+        elif esr >= early_stopping_round:
+            is_early_stopping = True
+            break
 
-    # print("\n============ Report ==============\n")
-    print("training process finished, best loss : {:.3f}, best epoch : {}".format(
-        best_loss, best_epoch
-    ))
+    if not is_early_stopping:
+        print("training process finished, best loss : {:.3f}, best epoch : {}".format(
+            best_loss, best_epoch
+        ))
+    else:
+        print("Early Stopping, best loss : {:.3f}, best epoch : {}".format(
+            best_loss, best_epoch
+        ))
 
     return  train_loss_list, valid_loss_list

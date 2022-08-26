@@ -15,17 +15,6 @@ from pytorch_model_summary import summary
 from src.preprocessing import ATOMS_LIST, ATOMS_DEGREE, ATOMS_NUMHS, ATOMS_VALENCE, ATOMS_AROMATIC, ATOMS_RING, ATOMS_HYBRID, atom_properties
 
 
-# atom_feats = [
-#     len(ATOMS_LIST) + 1, 
-#     len(ATOMS_DEGREE) + 1, 
-#     len(ATOMS_NUMHS) + 1, 
-#     len(ATOMS_VALENCE) + 1, 
-#     len(ATOMS_AROMATIC),
-#     len(ATOMS_RING),
-#     len(ATOMS_HYBRID) + 1,
-#     # len(atom_properties)
-# ]
-
 atom_feats = [
     len(ATOMS_LIST), 
     len(ATOMS_DEGREE), 
@@ -35,6 +24,16 @@ atom_feats = [
     len(ATOMS_RING),
     len(ATOMS_HYBRID),
 ]
+
+# atom_feats = [
+#     len(ATOMS_LIST) + 1, 
+#     len(ATOMS_DEGREE) + 1, 
+#     len(ATOMS_NUMHS), 
+#     len(ATOMS_VALENCE), 
+#     len(ATOMS_AROMATIC),
+#     len(ATOMS_RING),
+#     len(ATOMS_HYBRID),
+# ]
 
 edge_feats = [5,4,2,2,2]
 
@@ -429,7 +428,6 @@ class PNANet(nn.Module):
         deg, 
         aggrs = default_aggrs, 
         scalers = default_scalers, 
-        edge_dim : int = 2, 
         output_dim : int = 2, 
         hidden : int = 128, 
         p : float = 0.25, 

@@ -29,10 +29,10 @@ if __name__ == "__main__":
     batch_size = 128
 
     num_heads = 4
-    hidden = 128
-    p = 0.0
+    hidden = 64
+    p = 0.25
     alpha = 0.01
-    embedd_max_norm = 1.0 
+    embedd_max_norm = 1.5
     n_layers = 4
 
     train_loader, valid_loader, _ = generate_dataloader(

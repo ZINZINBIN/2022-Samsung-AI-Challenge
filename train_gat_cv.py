@@ -28,6 +28,7 @@ def train_cv(
     best_pt : str = "best.pt",
     last_pt : str = "last.pt",
     max_norm_grad : Optional[float] = None,
+    early_stopping_round : int = 4,
     ):
 
     train_loss_list = []
@@ -35,6 +36,9 @@ def train_cv(
 
     best_epoch = 0
     best_loss = torch.inf
+
+    esr = 0
+    is_early_stopping = False
 
     for epoch in range(num_epoch):
         train_loss = train_per_epoch(
@@ -56,15 +60,19 @@ def train_cv(
         train_loss_list.append(train_loss)
         valid_loss_list.append(valid_loss)
 
-        if not os.path.exists(root_dir):
-            os.mkdir(root_dir)
-        if not os.path.exists(root_dir):
-            os.mkdir(root_dir)
+        # save the lastest model
+        torch.save(model.state_dict(), os.path.join(root_dir, last_pt))
+
+        # Early Stopping
         if best_loss > valid_loss:
             best_loss = valid_loss
+            best_epoch  = epoch
             torch.save(model.state_dict(), os.path.join(root_dir, best_pt))
-
-        torch.save(model.state_dict(), os.path.join(root_dir, last_pt))
+            esr = 0
+        elif best_loss < valid_loss:
+            esr += 1
+        elif esr >= early_stopping_round:
+            break
 
     return  train_loss_list, valid_loss_list
 
@@ -96,7 +104,6 @@ if __name__ == "__main__":
         "alpha" : 0.1,
         "embedd_max_norm" : 1.0,
         "n_layers":2,
-        'edge_dim':3
     }
 
     preds = []
@@ -140,7 +147,6 @@ if __name__ == "__main__":
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size = 4, gamma = 0.95)
 
         root_dir = "./weights"
-
         best_pt = "cv_model_best_{}.pt".format(idx+1)
         last_pt = "cv_model_last_{}.pt".format(idx+1)
 
@@ -177,7 +183,7 @@ if __name__ == "__main__":
             dt_remain = dt * (num_k_fold - 1)
             
             h = int(dt_remain // 3600)
-            m = int(dt_remain // 60)
+            m = int(dt_remain % 3600 // 60)
             s = int(dt_remain % 60)
 
             print("Extected time remained : {}h {}m {}s".format(h,m,s))
