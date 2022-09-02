@@ -1,21 +1,23 @@
 import torch
 import pandas as pd
 from torch.utils.data import Dataset, DataLoader
-from typing import Literal, Dict
+from typing import Literal, Dict, List
 import random, re, os
 import numpy as np
 
+# For Reorganization Energy Regression (ground state + excite state)
 class SMILESDataset(Dataset):
-    def __init__(self, tokenizer : Dict, df : pd.DataFrame, max_len : int = 128, mode : Literal['train', 'submission'] = 'train'):
+    def __init__(self, tokenizer : Dict, df : pd.DataFrame, max_len : int = 128, mode : Literal['train', 'submission'] = 'train', cols : List = ["Reorg_g", "Reorg_ex"]):
         self.max_len = max_len
         self.mode = mode
         self.df = df
         self.tokenizer = tokenizer
+        self.cols = cols
 
         if self.mode == "submission":
             self.label_array = None
         else:
-            self.label_array = df[["Reorg_g", "Reorg_ex"]].values
+            self.label_array = df[cols].values
 
     def __len__(self):
         return len(self.df)
@@ -29,7 +31,7 @@ class SMILESDataset(Dataset):
         seq = row['SMILES']
 
         if self.mode != 'submission':
-            target = row[["Reorg_g", "Reorg_ex"]]
+            target = row[self.cols]
             target = torch.Tensor(target)
         else:
             target = None
