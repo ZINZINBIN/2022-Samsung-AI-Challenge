@@ -14,15 +14,15 @@ from torch_geometric.loader import DataLoader
 from torch.utils.data import SubsetRandomSampler
 
 # total atom list observed in train / test data
-ATOMS_LIST = ['H', 'B', 'C', 'N', 'O', 'F', 'Si', 'P', 'S', 'Cl', 'Br', 'I']
-ATOMS_NUM_LIST = [1, 5, 6, 7, 8, 9, 14, 15, 16, 17, 35, 53]
+# ATOMS_LIST = ['H', 'B', 'C', 'N', 'O', 'F', 'Si', 'P', 'S', 'Cl', 'Br', 'I']
+# ATOMS_NUM_LIST = [1, 5, 6, 7, 8, 9, 14, 15, 16, 17, 35, 53]
 
-# ATOMS_LIST = ['H', 'B', 'C', 'N', 'O', 'F', 'P', 'S', 'Cl']
-# ATOMS_NUM_LIST = [1, 5, 6, 7, 8, 9, 15, 16, 17]
+ATOMS_LIST = ['H', 'B', 'C', 'N', 'O', 'F', 'P', 'S', 'Cl']
+ATOMS_NUM_LIST = [1, 5, 6, 7, 8, 9, 15, 16, 17]
 
 # atom properties 
-ATOMS_DEGREE = [0, 1, 2, 3, 4, 5, 6]
-# ATOMS_DEGREE = [0, 1, 2, 3, 4]
+# ATOMS_DEGREE = [0, 1, 2, 3, 4, 5, 6]
+ATOMS_DEGREE = [0, 1, 2, 3]
 ATOMS_NUMHS = [0, 1, 2, 3]
 ATOMS_VALENCE = [0, 1, 2, 3]
 ATOMS_AROMATIC = [0, 1]
@@ -36,7 +36,6 @@ atom_properties = [
 ]
 
 # bond properties
-# BOND_TYPE = {'ZERO': 0,'SINGLE': 1,'DOUBLE': 2,'TRIPLE': 3,'AROMATIC': 4,}
 BOND_TYPE = {'SINGLE': 0,'DOUBLE': 1,'TRIPLE': 2,'AROMATIC': 3}
 BOND_STEREO = [0,2,3]
 BOND_AROMATIC = [0,1]
@@ -157,17 +156,18 @@ def edge_feature(bond):
 
     features = []
     features.extend([bond2idx])
-    features.extend(char2idx(int(bond.GetStereo()), BOND_STEREO))
+    # features.extend(char2idx(int(bond.GetStereo()), BOND_STEREO))
     features.extend(char2idx(int(bond.GetIsAromatic()), BOND_AROMATIC))
     features.extend(char2idx(int(bond.GetIsConjugated()), BOND_CONJUGATED))
     features.extend(char2idx(int(bond.IsInRing()), BOND_RING))
 
-    return features
+    return np.array(features)
 
 def convert_data_from_smiles(row, idx : int, mode : Literal['train', 'submission'], pred_col : Optional[Literal['Reorg_g','Reorg_ex', 'Multi']] = None):
 
     smiles = row['SMILES']
     mol = Chem.MolFromSmiles(smiles)
+    mol = Chem.AddHs(mol)
     adj = Chem.GetAdjacencyMatrix(mol)
 
     features = []

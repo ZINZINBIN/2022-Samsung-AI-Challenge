@@ -1,0 +1,25 @@
+  0%|          | 0/133885 [00:00<?, ?it/s] 13%|█▎        | 17035/133885 [00:00<00:00, 170338.39it/s] 25%|██▌       | 34069/133885 [00:00<00:00, 170212.44it/s] 38%|███▊      | 51091/133885 [00:00<00:00, 169012.20it/s] 51%|█████     | 67994/133885 [00:00<00:00, 158808.94it/s] 63%|██████▎   | 83959/133885 [00:00<00:00, 149189.24it/s] 75%|███████▍  | 100169/133885 [00:00<00:00, 153268.80it/s] 87%|████████▋ | 116855/133885 [00:00<00:00, 157496.53it/s]100%|█████████▉| 133528/133885 [00:00<00:00, 160335.22it/s]100%|██████████| 133885/133885 [00:00<00:00, 159467.58it/s]
+/home/zinzinbin/.conda/envs/research-env/lib/python3.9/site-packages/torch/nn/modules/rnn.py:62: UserWarning: dropout option adds dropout after all but last recurrent layer, so non-zero dropout expects num_layers greater than 1, but got dropout=0.25 and num_layers=1
+  warnings.warn("dropout option adds dropout after all but last "
+total alphabet :  21
+training process:   0%|          | 0/64 [00:00<?, ?it/s]training process:   0%|          | 0/64 [00:00<?, ?it/s]
+Traceback (most recent call last):
+  File "/home/zinzinbin/Dacon-AI-Competition/2022-Samsung-AI-Challenge/train_qm9.py", line 67, in <module>
+    train_loss, valid_loss = train_qm9(
+  File "/home/zinzinbin/Dacon-AI-Competition/2022-Samsung-AI-Challenge/src/train.py", line 208, in train_qm9
+    train_loss = train_per_epoch(
+  File "/home/zinzinbin/Dacon-AI-Competition/2022-Samsung-AI-Challenge/src/train.py", line 34, in train_per_epoch
+    output = model(data)
+  File "/home/zinzinbin/.conda/envs/research-env/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1102, in _call_impl
+    return forward_call(*input, **kwargs)
+  File "/home/zinzinbin/Dacon-AI-Competition/2022-Samsung-AI-Challenge/src/self_attention.py", line 160, in forward
+    x = self.encoder(x)
+  File "/home/zinzinbin/.conda/envs/research-env/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1102, in _call_impl
+    return forward_call(*input, **kwargs)
+  File "/home/zinzinbin/Dacon-AI-Competition/2022-Samsung-AI-Challenge/src/self_attention.py", line 129, in forward
+    output, (h_n, c_n) = self.lstm(x, (h_0, c_0))
+  File "/home/zinzinbin/.conda/envs/research-env/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1102, in _call_impl
+    return forward_call(*input, **kwargs)
+  File "/home/zinzinbin/.conda/envs/research-env/lib/python3.9/site-packages/torch/nn/modules/rnn.py", line 691, in forward
+    result = _VF.lstm(input, hx, self._flat_weights, self.bias, self.num_layers,
+RuntimeError: CUDA out of memory. Tried to allocate 82.00 MiB (GPU 0; 11.91 GiB total capacity; 119.44 MiB already allocated; 71.94 MiB free; 136.00 MiB reserved in total by PyTorch) If reserved memory is >> allocated memory try setting max_split_size_mb to avoid fragmentation.  See documentation for Memory Management and PYTORCH_CUDA_ALLOC_CONF

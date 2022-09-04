@@ -7,7 +7,7 @@ from src.utils import extract_alphabet_dict, plot_training_curve
 from src.CustomDataset import SMILESDataset
 from src.loss import RMSELoss
 from src.self_attention import Regressor, SelfAttention, SelfAttentionEncoder, SelfAttentionNetwork
-from src.train import train_qm9
+from src.train import train
 from src.evaluate import evaluate
 from src.inference import inference
 
@@ -23,6 +23,9 @@ torch.cuda.empty_cache()
 if __name__ == "__main__":
     PATH = "./dataset/"
 
+    train_df = pd.read_csv(os.path.join(PATH, "train_set.csv"))
+    test_df = pd.read_csv(os.path.join(PATH, "test_set.csv"))
+
     # qm9 dataset
     qm9 = pd.read_csv(os.path.join(PATH, "qm9.csv"))
     qm9.rename(columns = {'smiles':'SMILES', 'mol_id':'index'}, inplace = True)
@@ -30,11 +33,10 @@ if __name__ == "__main__":
     # alphabet extraction
     char2idx, idx2char = extract_alphabet_dict(qm9[['SMILES','index']])
 
-    # columns for predict
-    cols = ['mu','alpha','homo','lumo','gap','r2','zpve','u0','u298','h298','cv']
-
-    df_train, df_test = train_test_split(qm9, test_size = 0.2, random_state = 42)
+    df_train, df_test = train_test_split(train_df, test_size = 0.2, random_state = 42)
     df_train, df_valid = train_test_split(df_train, test_size = 0.2, random_state = 42)
+    
+    cols = ["Reorg_g", "Reorg_ex"]
 
     train_data = SMILESDataset(char2idx, df_train, mode = 'train', cols = cols)
     valid_data = SMILESDataset(char2idx, df_valid, mode = 'train', cols = cols)
@@ -56,15 +58,19 @@ if __name__ == "__main__":
     valid_loader = DataLoader(valid_data, batch_size, shuffle = True)
     test_loader = DataLoader(test_data, batch_size, shuffle = True)
 
-    encoder = SelfAttentionEncoder(batch_size, vocab_size, dropout, embedd_config)
-    regressor = Regressor(encoder.linear_input_dims, len(cols))
+    encoder = SelfAttentionEncoder(batch_size, vocab_size, dropout, embedd_config).to(device)
+    regressor = Regressor(encoder.linear_input_dims, len(cols)).to(device)
+
+    # load pretrained-weight
+    encoder.load_state_dict(torch.load("./weights/self_attention_encoder_best.pt"), strict = False)
 
     model = SelfAttentionNetwork(encoder, regressor).to(device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr = 1e-3)
+    optimizer = torch.optim.AdamW(model.parameters(), lr = 2e-4)
+    
     loss_fn = RMSELoss()
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=4, gamma=0.95)
   
-    train_loss, valid_loss = train_qm9(
+    train_loss, valid_loss = train(
         train_loader,
         valid_loader,
         model,
@@ -75,10 +81,12 @@ if __name__ == "__main__":
         num_epoch = num_epoch,
         verbose = verbose,
         root_dir = "./weights",
-        best_pt = "self_attention_encoder_best.pt",
-        last_pt = "self_attention_encoder_last.pt",
+        best_pt = "self_attention_best.pt",
+        last_pt = "self_attention_last.pt",
         max_norm_grad = 1.0,
         mode = 'BERT'
     )
 
-    plot_training_curve("./result/self_attention_qm9_learning_curve.png", train_loss, valid_loss)
+    plot_training_curve("./result/self_attention_learning_curve.png", train_loss, valid_loss)
+    model.load_state_dict(torch.load("./weights/self_attention_best.pt"), strict = False)
+    test_loss = evaluate(test_loader, model, optimizer, loss_fn, device, 'BERT')

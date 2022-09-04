@@ -21,16 +21,16 @@ torch.cuda.empty_cache()
 if __name__ == "__main__":
     PATH = "./dataset/"
 
-    train_df = pd.read_csv(os.path.join(PATH, "train_set.csv"))
+    train_df = pd.read_csv(os.path.join(PATH, "train_set.csv")).iloc[0:1024]
     test_df = pd.read_csv(os.path.join(PATH, "test_set.csv"))
 
     num_epoch = 128
     verbose = 8
-    batch_size = 128
+    batch_size = 4
 
     hidden = 128
     alpha = 0.1
-    n_layers = 6
+    n_layers = 4
     embedd_max_norm = 1.0
     lr = 1e-3
 

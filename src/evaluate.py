@@ -1,5 +1,6 @@
 import torch
 from torch.utils.data import DataLoader
+from typing import Literal
 
 def evaluate(
     test_loader : DataLoader, 
@@ -7,6 +8,7 @@ def evaluate(
     optimizer : torch.optim.Optimizer,
     loss_fn : torch.nn.Module,
     device : str = "cpu",
+    mode : Literal['BERT','GNN'] = 'GNN'
     ):
 
     model.eval()
@@ -16,8 +18,11 @@ def evaluate(
     for batch_idx, data in enumerate(test_loader):
         with torch.no_grad():
             optimizer.zero_grad()
-            data = data.to(device)
-            target = data.y.to(device)
+            if mode == 'GNN':
+                data = data.to(device)
+                target = data.y.to(device)
+            else:
+                target = data['y'].to(device)
             output = model(data)
 
             loss = loss_fn(output, target)

@@ -44,7 +44,7 @@ class SMILESDataset(Dataset):
         tokens = list(seq)
         tokens += ['<PAD>' for _ in range(self.max_len - len(tokens))]
 
-        ret = np.array([self.tokenizer[v] for v in tokens])
+        ret = np.array([self.tokenizer[v] if v in list(self.tokenizer.keys()) else len(list(self.tokenizer.keys())) for v in tokens ])
         ret = torch.from_numpy(ret)
 
         if self.mode == 'train':
