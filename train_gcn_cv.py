@@ -9,7 +9,7 @@ import pandas as pd
 from torch.utils.data import DataLoader
 from src.preprocessing import generate_dataloader_cv, generate_dataloader
 from src.loss import RMSELoss
-from src.model import GATNet
+from src.model import GCNNet
 from src.train import train_per_epoch, valid_per_epoch
 from src.evaluate import evaluate
 from src.inference import inference
@@ -92,18 +92,16 @@ if __name__ == "__main__":
     train_df = pd.read_csv(os.path.join(PATH, "train_set.csv"))
     test_df = pd.read_csv(os.path.join(PATH, "test_set.csv"))
 
-    num_epoch = 50
-    batch_size = 200
+    num_epoch = 32
+    batch_size = 128
     num_k_fold = 8
     max_norm_grad = 1.0
 
     kwargs = {
-        "num_heads" : 4,
         "hidden" : 64,
-        "p" : 0.25,
         "alpha" : 0.1,
         "embedd_max_norm" : 1.0,
-        "n_layers":4,
+        "n_layers":2,
     }
 
     preds = []
@@ -141,7 +139,7 @@ if __name__ == "__main__":
             pred_col = 'Multi'
         )
 
-        model = GATNet(**kwargs).to(device)
+        model = GCNNet(**kwargs).to(device)
         optimizer = torch.optim.AdamW(model.parameters(), lr = 1e-3)
         loss_fn = RMSELoss()
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size = 4, gamma = 0.95)

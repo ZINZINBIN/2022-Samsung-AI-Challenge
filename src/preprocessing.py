@@ -16,18 +16,18 @@ from torch.utils.data import SubsetRandomSampler
 # total atom list observed in train / test data
 # ATOMS_LIST = ['H', 'B', 'C', 'N', 'O', 'F', 'Si', 'P', 'S', 'Cl', 'Br', 'I']
 # ATOMS_NUM_LIST = [1, 5, 6, 7, 8, 9, 14, 15, 16, 17, 35, 53]
-
-ATOMS_LIST = ['H', 'B', 'C', 'N', 'O', 'F', 'P', 'S', 'Cl']
-ATOMS_NUM_LIST = [1, 5, 6, 7, 8, 9, 15, 16, 17]
+# ATOMS_DEGREE = [0, 1, 2, 3, 4, 5, 6]
+# ATOMS_HYBRID = [2,3,4,5,6]
 
 # atom properties 
-# ATOMS_DEGREE = [0, 1, 2, 3, 4, 5, 6]
-ATOMS_DEGREE = [0, 1, 2, 3]
+ATOMS_LIST = ['C','N','O','F','S','Cl','Br']
+ATOMS_NUM_LIST = [6, 7, 8, 9, 16, 17, 35]
+ATOMS_DEGREE = [1, 2, 3, 4]
 ATOMS_NUMHS = [0, 1, 2, 3]
 ATOMS_VALENCE = [0, 1, 2, 3]
 ATOMS_AROMATIC = [0, 1]
 ATOMS_RING = [0,1]
-ATOMS_HYBRID = [2,3,4,5,6]
+ATOMS_HYBRID = [2,3,4]
 
 # additional
 atom_properties = [
@@ -37,7 +37,6 @@ atom_properties = [
 
 # bond properties
 BOND_TYPE = {'SINGLE': 0,'DOUBLE': 1,'TRIPLE': 2,'AROMATIC': 3}
-BOND_STEREO = [0,2,3]
 BOND_AROMATIC = [0,1]
 BOND_CONJUGATED = [0,1]
 BOND_RING = [0,1]
@@ -97,19 +96,7 @@ def get_atom_table():
     return scaled_df
 
 # generate new dataframe with molecular properties
-def get_mol_properties(df : pd.DataFrame):
-
-    mol_properties = [
-        'MolMR', 'NHOHCount', 'NOCount',
-        'NumHAcceptors', 'NumHDonors',
-        'NumHeteroatoms', 'NumValenceElectrons',
-        'MaxPartialCharge', 'MinPartialCharge',
-        'NumAromaticRings', 'NumSaturatedRings', 'NumAliphaticRings',
-        'NumAromaticHeterocycles', 'NumAromaticCarbocycles',
-        'NumSaturatedHeterocycles', 'NumSaturatedCarbocycles',
-        'NumAliphaticHeterocycles', 'NumAliphaticCarbocycles',
-        'RingCount', 'FractionCSP3', 'TPSA', 'LabuteASA'
-    ]
+def get_mol_properties(df : pd.DataFrame, mol_properties : List = MOL_PROPERTIES):
     
     for idx, mol in tqdm(enumerate(df.loc[:, 'SMILES']), desc='Molecular Feature', total=len(df)):
         mol = Chem.AddHs(Chem.MolFromSmiles(mol))
@@ -122,7 +109,7 @@ def get_mol_properties(df : pd.DataFrame):
     scaled_df.loc[:, mol_properties] = scale(df.loc[:, mol_properties])
     return scaled_df
 
-def char2idx(x : str, allowable_set : List):
+def char2idx(x : str, allowable_set : List)->List[int]:
     if x not in allowable_set:
         return [len(allowable_set)] 
     return [allowable_set.index(x)]
@@ -150,13 +137,12 @@ def edge_feature(bond):
 
     bond_type = bond.GetBondType().name
     if bond_type not in BOND_TYPE.keys():
-        bond2idx = len(BOND_TYPE.items())
+        bond2idx = len(list(BOND_TYPE.items()))
     else:
-        bond2idx = BOND_TYPE[bond_type]
+        bond2idx = int(BOND_TYPE[bond_type])
 
     features = []
     features.extend([bond2idx])
-    # features.extend(char2idx(int(bond.GetStereo()), BOND_STEREO))
     features.extend(char2idx(int(bond.GetIsAromatic()), BOND_AROMATIC))
     features.extend(char2idx(int(bond.GetIsConjugated()), BOND_CONJUGATED))
     features.extend(char2idx(int(bond.IsInRing()), BOND_RING))
@@ -167,7 +153,6 @@ def convert_data_from_smiles(row, idx : int, mode : Literal['train', 'submission
 
     smiles = row['SMILES']
     mol = Chem.MolFromSmiles(smiles)
-    mol = Chem.AddHs(mol)
     adj = Chem.GetAdjacencyMatrix(mol)
 
     features = []

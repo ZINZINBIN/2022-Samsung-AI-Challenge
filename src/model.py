@@ -14,9 +14,9 @@ from torch_geometric.utils.undirected import to_undirected
 from pytorch_model_summary import summary
 from src.preprocessing import ATOMS_LIST, ATOMS_DEGREE, ATOMS_NUMHS, ATOMS_VALENCE, ATOMS_AROMATIC, ATOMS_RING, ATOMS_HYBRID, BOND_TYPE, BOND_AROMATIC, BOND_CONJUGATED, BOND_RING
 
-# atom_feats = [
+# atom_feats = [ d
 #     len(ATOMS_LIST), 
-#     len(ATOMS_DEGREE), 
+#     len(ATOMS_DEGREE),  
 #     len(ATOMS_NUMHS), 
 #     len(ATOMS_VALENCE), 
 #     len(ATOMS_AROMATIC),
@@ -31,7 +31,7 @@ atom_feats = [
     len(ATOMS_VALENCE), 
     len(ATOMS_AROMATIC),
     len(ATOMS_RING),
-    len(ATOMS_HYBRID),
+    len(ATOMS_HYBRID) + 1,
 ]
 
 edge_feats = [
@@ -66,6 +66,35 @@ class FeatureEmbedding(nn.Module):
 
         return output
 
+class GraphEmbedding(nn.Module):
+    def __init__(self, atom_feats : List, edge_feats : List, max_norm = 1.0):
+        super(GraphEmbedding, self).__init__()
+        self.emb_layers = nn.ModuleList()
+        self.max_norm = max_norm
+        self.atom_feats = atom_feats
+        self.edge_feats = edge_feats
+
+        for size in atom_feats + edge_feats:
+            emb_layer = nn.Embedding(size, size, max_norm = max_norm)
+            emb_layer.load_state_dict({'weight': torch.eye(size)})
+            self.emb_layers.append(emb_layer)
+
+    def forward(self, node : torch.Tensor, edge_attr : torch.Tensor):
+        atom_feat = []
+        edge_feat = []
+
+        for i, layer in enumerate(self.emb_layers[0:len(self.atom_feats)]):
+            atom_feat.append(layer(node[:, i].long()))
+
+        for i, layer in enumerate(self.emb_layers[len(self.atom_feats):]):
+            edge_feat.append(layer(edge_attr[:,i].long()))
+
+        # Concatenate all feature as dim 1
+        atom_feat = F.normalize(torch.cat(atom_feat, 1))
+        edge_feat = F.normalize(torch.cat(edge_feat, 1))
+
+        return atom_feat, edge_feat
+
 
 class GCNLayer(nn.Module):
     def __init__(self, in_features : int, out_features : int, alpha : float)->None:
@@ -95,6 +124,9 @@ class GConvNet(nn.Module):
 
         self.atom_embedd = FeatureEmbedding(feature_lens = atom_feats, max_norm=embedd_max_norm)
         self.edge_embedd = FeatureEmbedding(feature_lens = edge_feats, max_norm=embedd_max_norm)
+        self.edge_weight = nn.Linear(sum(edge_feats),1)
+
+        # self.embedd = GraphEmbedding(atom_feats, edge_feats, embedd_max_norm)
 
         self.gc = nn.ModuleList()
         for i in range(n_layers):
@@ -114,11 +146,13 @@ class GConvNet(nn.Module):
        
     def forward(self, inputs)->torch.Tensor:
         x, edge_idx, edge_attr, batch_idx = inputs.x, inputs.edge_index, inputs.edge_attr, inputs.batch
-        x = self.atom_embedd(x)
+
+        x = self.atom_embedd(x) 
         edge_attr = self.edge_embedd(edge_attr)
+        edge_weight = self.edge_weight(edge_attr)
 
         for layer in self.gc:
-            x = layer(x, edge_idx, edge_attr)
+            x = layer(x, edge_idx, edge_weight)
 
         if self.agg == 'add':
             x = global_add_pool(x, batch_idx)
@@ -132,9 +166,6 @@ class GConvNet(nn.Module):
 
         return x if self.output_dim != 1 else x.squeeze(1)
 
-    def summary(self, sample_inputs):
-        print(summary(self, sample_inputs, max_depth = None, show_parent_layers=True, show_input = True))
-
 class GATLayer(nn.Module):
     def __init__(self, num_features, hidden, num_head, alpha = 0.01, p = 0.5, edge_dim : int = 2):
         super(GATLayer, self).__init__()
@@ -144,7 +175,7 @@ class GATLayer(nn.Module):
         self.alpha = alpha
 
         self.gat = GATv2Conv(num_features, hidden, num_head, dropout = p, edge_dim = edge_dim)
-        self.norm  = nn.BatchNorm1d(num_head * hidden)
+        self.norm  = BatchNorm(num_head * hidden)
         self.act = nn.LeakyReLU(alpha)
 
     def forward(self, x : torch.Tensor, edge_idx : Optional[torch.Tensor]  = None, edge_attr : Optional[torch.Tensor] = None)->torch.Tensor:

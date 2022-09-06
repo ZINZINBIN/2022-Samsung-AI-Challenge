@@ -11,7 +11,7 @@ from src.inference import inference
 
 # device allocation
 if(torch.cuda.device_count() >= 1):
-    device = "cuda:0" 
+    device = "cuda:1" 
 else:
     device = 'cpu'
 
@@ -24,7 +24,7 @@ if __name__ == "__main__":
     train_df = pd.read_csv(os.path.join(PATH, "train_set.csv"))
     test_df = pd.read_csv(os.path.join(PATH, "test_set.csv"))
 
-    num_epoch = 64
+    num_epoch = 128
     verbose = 8
     batch_size = 128
 
@@ -32,7 +32,7 @@ if __name__ == "__main__":
     hidden = 64
     p = 0.25
     alpha = 0.01
-    embedd_max_norm = 1.5
+    embedd_max_norm = 1.0
     n_layers = 4
 
     train_loader, valid_loader, _ = generate_dataloader(
@@ -51,6 +51,7 @@ if __name__ == "__main__":
         alpha = alpha, 
         embedd_max_norm = embedd_max_norm, 
         n_layers = n_layers,
+        agg = 'add'
     )
 
     model.to(device)
