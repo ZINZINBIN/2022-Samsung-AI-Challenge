@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import os, glob2
 import torch
 from typing import List, Union, Literal, Optional
 from mendeleev.fetch import fetch_ionization_energies, fetch_table
@@ -13,12 +14,6 @@ from torch_geometric.utils import degree
 from torch_geometric.loader import DataLoader
 from torch.utils.data import SubsetRandomSampler
 
-# total atom list observed in train / test data
-# ATOMS_LIST = ['H', 'B', 'C', 'N', 'O', 'F', 'Si', 'P', 'S', 'Cl', 'Br', 'I']
-# ATOMS_NUM_LIST = [1, 5, 6, 7, 8, 9, 14, 15, 16, 17, 35, 53]
-# ATOMS_DEGREE = [0, 1, 2, 3, 4, 5, 6]
-# ATOMS_HYBRID = [2,3,4,5,6]
-
 # atom properties 
 ATOMS_LIST = ['C','N','O','F','S','Cl','Br']
 ATOMS_NUM_LIST = [6, 7, 8, 9, 16, 17, 35]
@@ -31,7 +26,7 @@ ATOMS_HYBRID = [2,3,4]
 
 # additional
 atom_properties = [
-    'atomic_weight', 'atomic_radius', 'atomic_volume', 'electron_affinity',
+    'atomic_weight', 'atomic_radius', 'electron_affinity', 
     'dipole_polarizability', 'vdw_radius', 'en_pauling'
 ]
 
@@ -149,8 +144,109 @@ def edge_feature(bond):
 
     return np.array(features)
 
-def convert_data_from_smiles(row, idx : int, mode : Literal['train', 'submission'], pred_col : Optional[Literal['Reorg_g','Reorg_ex', 'Multi']] = None):
+def convert_data_from_mol(row, idx : int,  mode : Literal['train','submission'], pred_col : Optional[Literal['Reorg_g', 'Reorg_ex', 'Multi']] =  None):
 
+    def _atom_feature(atom, table:pd.DataFrame = atom_table):
+        features = []
+
+        # Embedding Features : topological info
+        features.extend(char2idx(atom.GetSymbol(), ATOMS_LIST))
+        features.extend(char2idx(atom.GetDegree(), ATOMS_DEGREE))
+        features.extend(char2idx(atom.GetTotalNumHs(), ATOMS_NUMHS))
+        features.extend(char2idx(atom.GetImplicitValence(), ATOMS_VALENCE))
+        features.extend(char2idx(int(atom.GetIsAromatic()), ATOMS_AROMATIC))
+        features.extend(char2idx(int(atom.IsInRing()), ATOMS_RING))
+        features.extend(char2idx(atom.GetHybridization(), ATOMS_HYBRID))
+
+        # Continuous Features : chemical info
+        if char2idx(atom.GetSymbol(), ATOMS_LIST)[0] == len(ATOMS_LIST):
+            features += list(table.loc[6].values)
+        else:
+            features += list(table.loc[ATOMS_NUM_LIST[char2idx(atom.GetSymbol(), ATOMS_LIST)[0]]].values)
+ 
+        return np.array(features)
+
+    def _edge_feature(bond, conf_g, conf_ex):
+
+        bond_type = bond.GetBondType().name
+        if bond_type not in BOND_TYPE.keys():
+            bond2idx = len(list(BOND_TYPE.items()))
+        else:
+            bond2idx = int(BOND_TYPE[bond_type])
+
+        features = []
+
+        # Embedding feature
+        features.extend([bond2idx])
+        features.extend(char2idx(int(bond.GetIsAromatic()), BOND_AROMATIC))
+        features.extend(char2idx(int(bond.GetIsConjugated()), BOND_CONJUGATED))
+        features.extend(char2idx(int(bond.IsInRing()), BOND_RING))
+        
+        # Continuous feature
+        start = bond.GetBeginAtomIdx()
+        end = bond.GetEndAtomIdx()
+
+        bond_dis_g = np.linalg.norm(conf_g.GetAtomPosition(end) - conf_g.GetAtomPosition(start))
+        bond_dis_ex = np.linalg.norm(conf_ex.GetAtomPosition(end) - conf_ex.GetAtomPosition(start))
+
+        features.extend([bond_dis_g])
+        features.extend([bond_dis_ex])
+
+        return np.array(features)
+
+    # using mol data
+    if mode == 'train':
+        path = os.path.join("./dataset", "mol_files", "train_set")
+    else:
+        path = os.path.join("./dataset", "mol_files", "test_set")
+    
+    indx = row['index']
+    path_g = os.path.join(path, indx + "_g.mol")
+    path_ex = os.path.join(path, indx + "_ex.mol")
+    
+    mol_g = Chem.MolFromMolFile(path_g)
+    mol_ex = Chem.MolFromMolFile(path_ex)
+
+    conf_g = mol_g.GetConformer()
+    conf_ex  = mol_ex.GetConformer()
+    
+    adj = Chem.GetAdjacencyMatrix(mol_g)
+
+    features = []
+
+    for _, atom in enumerate(mol_g.GetAtoms()):
+        features.append(_atom_feature(atom))
+
+    bonds = []
+
+    for idx_i in range(mol_g.GetNumAtoms()):
+        for idx_j in range(mol_g.GetNumAtoms()):
+            if adj[idx_i,idx_j] == 1:
+                bonds.append([idx_i, idx_j])
+
+    bonds_attr = []
+    
+    for atom in mol_g.GetAtoms():
+        for bond in atom.GetBonds():
+            bonds_attr.append(_edge_feature(bond, conf_g, conf_ex))
+    
+    features = torch.from_numpy(np.array(features)).float()
+    bonds = torch.from_numpy(np.array(bonds)).long().t().contiguous()
+    bonds_attr = torch.from_numpy(np.array(bonds_attr)).float().contiguous()
+
+    if mode == 'train':
+        if pred_col == 'Multi':
+            pred_col = ['Reorg_g','Reorg_ex']
+        pred = row[pred_col]
+        pred = torch.tensor([pred], dtype = torch.float)
+        return Data(x = features, edge_index = bonds, edge_attr = bonds_attr, y = pred, idx = idx)
+
+    else:
+        return Data(x = features, edge_index = bonds, edge_attr = bonds_attr, y = None, idx = idx)
+
+def convert_data_from_smiles(row, idx : int, mode : Literal['train', 'submission'], pred_col : Optional[Literal['Reorg_g','Reorg_ex', 'Multi']] = None):
+    
+    # using smiles data
     smiles = row['SMILES']
     mol = Chem.MolFromSmiles(smiles)
     adj = Chem.GetAdjacencyMatrix(mol)
@@ -172,7 +268,7 @@ def convert_data_from_smiles(row, idx : int, mode : Literal['train', 'submission
     for atom in mol.GetAtoms():
         for bond in atom.GetBonds():
             bonds_attr.append(edge_feature(bond))
-   
+    
     features = torch.from_numpy(np.array(features)).float()
     bonds = torch.from_numpy(np.array(bonds)).long().t().contiguous()
     bonds_attr = torch.from_numpy(np.array(bonds_attr)).float().contiguous()
@@ -186,11 +282,15 @@ def convert_data_from_smiles(row, idx : int, mode : Literal['train', 'submission
     else:
         return Data(x = features, edge_index = bonds, edge_attr = bonds_attr, y = None, idx = idx)
     
-def generate_dataset(df : pd.DataFrame, mode : Literal['train', 'submission'], pred_col : Optional[Literal['Reorg_g','Reorg_ex', 'Multi']] = None):
+def generate_dataset(df : pd.DataFrame, mode : Literal['train', 'submission'], pred_col : Optional[Literal['Reorg_g','Reorg_ex', 'Multi']] = None, data_type : Literal['SMILES','MOL'] = 'SMILES'):
     dataset = []
     for idx, row in tqdm(df.iterrows()):
-        data = convert_data_from_smiles(row, idx, mode, pred_col)
+        if data_type == 'SMILES':
+            data = convert_data_from_smiles(row, idx, mode, pred_col)
+        else:
+            data = convert_data_from_mol(row, idx, mode, pred_col)
         dataset.append(data)
+
     return dataset
 
 def generate_dataloader(
@@ -199,10 +299,11 @@ def generate_dataloader(
     test_size : Optional[float] = None, 
     valid_size : float = 0.2,
     batch_size : int = 128, 
-    pred_col : Optional[Literal['Reorg_g', 'Reorg_ex', 'Multi']] = 'Reorg_g'
+    pred_col : Optional[Literal['Reorg_g', 'Reorg_ex', 'Multi']] = 'Reorg_g',
+    data_type : Literal['SMILES','MOL'] = 'SMILES'
     ):
 
-    dataset = generate_dataset(df, mode, pred_col)
+    dataset = generate_dataset(df, mode, pred_col, data_type)
     indices = range(0, len(dataset))
 
     if mode == 'train' and test_size is not None:

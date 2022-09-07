@@ -98,7 +98,7 @@ if __name__ == "__main__":
     max_norm_grad = 1.0
 
     kwargs = {
-        "num_heads" : 4,
+        "num_heads" : 8,
         "hidden" : 64,
         "p" : 0.25,
         "alpha" : 0.1,

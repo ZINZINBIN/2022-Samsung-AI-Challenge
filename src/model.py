@@ -12,17 +12,7 @@ from torch_geometric.nn import global_max_pool, global_mean_pool, global_add_poo
 from torch_geometric.nn import max_pool, max_pool_x, avg_pool, BatchNorm
 from torch_geometric.utils.undirected import to_undirected
 from pytorch_model_summary import summary
-from src.preprocessing import ATOMS_LIST, ATOMS_DEGREE, ATOMS_NUMHS, ATOMS_VALENCE, ATOMS_AROMATIC, ATOMS_RING, ATOMS_HYBRID, BOND_TYPE, BOND_AROMATIC, BOND_CONJUGATED, BOND_RING
-
-# atom_feats = [ d
-#     len(ATOMS_LIST), 
-#     len(ATOMS_DEGREE),  
-#     len(ATOMS_NUMHS), 
-#     len(ATOMS_VALENCE), 
-#     len(ATOMS_AROMATIC),
-#     len(ATOMS_RING),
-#     len(ATOMS_HYBRID),
-# ]
+from src.preprocessing import ATOMS_LIST, ATOMS_DEGREE, ATOMS_NUMHS, ATOMS_VALENCE, ATOMS_AROMATIC, ATOMS_RING, ATOMS_HYBRID, BOND_TYPE, BOND_AROMATIC, BOND_CONJUGATED, BOND_RING, atom_properties
 
 atom_feats = [
     len(ATOMS_LIST) + 1, 
@@ -94,7 +84,6 @@ class GraphEmbedding(nn.Module):
         edge_feat = F.normalize(torch.cat(edge_feat, 1))
 
         return atom_feat, edge_feat
-
 
 class GCNLayer(nn.Module):
     def __init__(self, in_features : int, out_features : int, alpha : float)->None:
@@ -234,6 +223,64 @@ class GATNet(nn.Module):
             x = layer(x)
 
         return x if self.output_dim != 1 else x.squeeze(1)
+
+class GATNetHybrid(nn.Module):
+    def __init__(self, output_dim : int = 2, hidden : int = 128, num_heads : int = 4, p : float = 0.25, alpha = 0.01, embedd_max_norm = 1.0, n_layers : int = 4, agg : Literal['pool', 'mean', 'add'] = 'add'):
+        super(GATNetHybrid, self).__init__()
+        torch.manual_seed(42)
+        self.hidden = hidden
+        self.alpha = alpha
+        self.embedd_max_norm = embedd_max_norm
+        self.output_dim = output_dim
+        self.agg = agg
+        self.edge_dim = sum(edge_feats)
+   
+        self.atom_embedd = FeatureEmbedding(feature_lens = atom_feats, max_norm=embedd_max_norm)
+        self.edge_embedd = FeatureEmbedding(feature_lens = edge_feats, max_norm=embedd_max_norm)
+
+        self.gc = nn.ModuleList()
+        for i in range(n_layers):
+            self.gc.append(GATLayer(sum(atom_feats) + len(atom_properties) if i == 0 else hidden * num_heads, hidden, num_heads, alpha, p, sum(edge_feats) + 2))
+
+        self.mlp = nn.ModuleList(
+            [
+                nn.Linear(num_heads * self.hidden, self.hidden//2),
+                nn.BatchNorm1d(self.hidden//2),
+                nn.ReLU(),
+                nn.Linear(self.hidden//2, self.hidden//2),
+                nn.BatchNorm1d(self.hidden//2),
+                nn.ReLU(),
+                nn.Linear(self.hidden//2, output_dim),
+            ]
+        )
+       
+    def forward(self, inputs)->torch.Tensor:
+        x, edge_idx, edge_attr, batch_idx = inputs.x,  inputs.edge_index, inputs.edge_attr, inputs.batch
+
+        x_embed = self.atom_embedd(x[:,0:len(atom_feats)])
+        edge_attr_embed = self.edge_embedd(edge_attr[:,0:len(edge_feats)])
+
+        x_linear = x[:,len(atom_feats):-1]
+        edge_attr_linear = edge_attr[:,len(edge_feats):]
+
+        x = torch.cat([x_embed, x_linear], axis = 1)
+        edge_attr = torch.cat([edge_attr_embed, edge_attr_linear], axis = 1)
+
+        for layer in self.gc:
+            x = layer(x, edge_idx, edge_attr)
+
+        if self.agg == 'add':
+            x = global_add_pool(x, batch_idx)
+        elif self.agg == 'mean':
+            x = global_mean_pool(x, batch_idx)
+        elif self.agg == 'pool':
+            x = global_max_pool(x, batch_idx)
+        
+        for layer in self.mlp:
+            x = layer(x)
+
+        return x if self.output_dim != 1 else x.squeeze(1)
+
 
 class ChebConvLayer(nn.Module):
     def __init__(self, n_dims_in : int, k : int, n_dims_out : int, alpha = 0.01):

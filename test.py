@@ -3,7 +3,7 @@ import torch
 import pandas as pd
 from src.preprocessing import generate_dataloader
 from src.loss import RMSELoss
-from src.model import GATNet
+from src.model import GATNetHybrid
 from src.train import train
 from src.utils import plot_training_curve
 from src.evaluate import evaluate
@@ -31,27 +31,28 @@ if __name__ == "__main__":
     num_heads = 4
     hidden = 64
     p = 0.25
-    alpha = 0.1
-    embedd_max_norm = 1.0 
+    alpha = 0.01
+    embedd_max_norm = 1.0
     n_layers = 4
 
-    train_loader, valid_loader, test_loader = generate_dataloader(
+    train_loader, valid_loader, _ = generate_dataloader(
         train_df,
         mode = 'train', 
-        test_size = 0.2, 
+        test_size = None, 
         valid_size = 0.2,
         batch_size = batch_size, 
-        pred_col = 'Multi'
+        pred_col = 'Multi',
+        data_type = 'MOL'
     )
 
-    # for Reorg_g
-    model = GATNet(
+    model = GATNetHybrid(
         num_heads = num_heads,
         p = p,
         hidden = hidden, 
         alpha = alpha, 
         embedd_max_norm = embedd_max_norm, 
-        n_layers = n_layers
+        n_layers = n_layers,
+        agg = 'add'
     )
 
     model.to(device)
@@ -59,8 +60,6 @@ if __name__ == "__main__":
     optimizer = torch.optim.AdamW(model.parameters(), lr = 1e-3)
     loss_fn = RMSELoss()
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=4, gamma=0.95)
-    # scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0 = 8, T_mult=2)
-
 
     train_loss, valid_loss = train(
         train_loader,
@@ -81,7 +80,6 @@ if __name__ == "__main__":
     plot_training_curve("./result/GATNet_learning_curve.png", train_loss, valid_loss)
 
     model.load_state_dict(torch.load("./weights/GATNet_best.pt"), strict = False)
-    test_loss = evaluate(test_loader, model, optimizer, loss_fn, device)
 
     # inference
     submission_loader = generate_dataloader(
@@ -90,7 +88,8 @@ if __name__ == "__main__":
         test_size = None, 
         valid_size = None,
         batch_size = 128, 
-        pred_col = None
+        pred_col = None, 
+        data_type = 'MOL'
     )
 
     pred = inference(submission_loader, model, device)
