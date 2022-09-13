@@ -144,7 +144,7 @@ def edge_feature(bond):
 
     return np.array(features)
 
-def convert_data_from_mol(row, idx : int,  mode : Literal['train','submission'], pred_col : Optional[Literal['Reorg_g', 'Reorg_ex', 'Multi']] =  None):
+def convert_data_from_mol(row, idx : int,  mode : Literal['train','test','submission'], pred_col : Optional[Literal['Reorg_g', 'Reorg_ex', 'Multi']] =  None):
 
     def _atom_feature(atom, table:pd.DataFrame = atom_table):
         features = []
@@ -158,12 +158,14 @@ def convert_data_from_mol(row, idx : int,  mode : Literal['train','submission'],
         features.extend(char2idx(int(atom.IsInRing()), ATOMS_RING))
         features.extend(char2idx(atom.GetHybridization(), ATOMS_HYBRID))
 
+        '''
         # Continuous Features : chemical info
         if char2idx(atom.GetSymbol(), ATOMS_LIST)[0] == len(ATOMS_LIST):
             features += list(table.loc[6].values)
         else:
             features += list(table.loc[ATOMS_NUM_LIST[char2idx(atom.GetSymbol(), ATOMS_LIST)[0]]].values)
- 
+        '''
+        
         return np.array(features)
 
     def _edge_feature(bond, conf_g, conf_ex):
@@ -197,8 +199,10 @@ def convert_data_from_mol(row, idx : int,  mode : Literal['train','submission'],
     # using mol data
     if mode == 'train':
         path = os.path.join("./dataset", "mol_files", "train_set")
-    else:
+    elif mode == 'submission':
         path = os.path.join("./dataset", "mol_files", "test_set")
+    else:
+        path = os.path.join("./dataset", "mol_files", "train_set")
     
     indx = row['index']
     path_g = os.path.join(path, indx + "_g.mol")
@@ -334,10 +338,11 @@ def generate_dataloader_cv(
     batch_size : int = 128, 
     train_indices : Optional[List] = None,
     valid_indices : Optional[List] = None,
-    pred_col : Optional[Literal['Reorg_g', 'Reorg_ex', 'Multi']] = 'Reorg_g'
+    pred_col : Optional[Literal['Reorg_g', 'Reorg_ex', 'Multi']] = 'Reorg_g',
+    data_type : Literal['SMILES','MOL'] = 'SMILES'
     ):
 
-    dataset = generate_dataset(df, mode, pred_col)
+    dataset = generate_dataset(df, mode, pred_col, data_type)
     train_loader = DataLoader(dataset, batch_size, sampler = SubsetRandomSampler(train_indices))
     valid_loader = DataLoader(dataset, batch_size, sampler = SubsetRandomSampler(valid_indices))
     return train_loader, valid_loader

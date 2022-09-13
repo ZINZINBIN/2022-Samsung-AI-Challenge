@@ -240,7 +240,7 @@ class GATNetHybrid(nn.Module):
 
         self.gc = nn.ModuleList()
         for i in range(n_layers):
-            self.gc.append(GATLayer(sum(atom_feats) + len(atom_properties) if i == 0 else hidden * num_heads, hidden, num_heads, alpha, p, sum(edge_feats) + 2))
+            self.gc.append(GATLayer(sum(atom_feats) if i == 0 else hidden * num_heads, hidden, num_heads, alpha, p, sum(edge_feats) + 2))
 
         self.mlp = nn.ModuleList(
             [
@@ -260,10 +260,11 @@ class GATNetHybrid(nn.Module):
         x_embed = self.atom_embedd(x[:,0:len(atom_feats)])
         edge_attr_embed = self.edge_embedd(edge_attr[:,0:len(edge_feats)])
 
-        x_linear = x[:,len(atom_feats):-1]
+        # x_linear = x[:,len(atom_feats):-1]
         edge_attr_linear = edge_attr[:,len(edge_feats):]
 
-        x = torch.cat([x_embed, x_linear], axis = 1)
+        x = x_embed
+        # x = torch.cat([x_embed, x_linear], axis = 1)
         edge_attr = torch.cat([edge_attr_embed, edge_attr_linear], axis = 1)
 
         for layer in self.gc:
